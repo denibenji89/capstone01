@@ -1,0 +1,78 @@
+---
+ - hosts: localhost
+   vars:
+     region: us-east-1
+     image_id: ami-04d29b6f966df1537
+     instance_type: t2.micro
+     key_name: ec2-key
+     tag_name: dev
+   tasks:
+     - name: creating vpc
+       ec2_vpc_net:
+         name: test
+         cidr_block: 172.10.0.0/16
+         region: "{{region}}"
+         state: present
+       register: vpc
+     - name: creating subnet
+       ec2_vpc_subnet:
+         vpc_id: "{{vpc.vpc.id}}"
+         cidr: 172.10.1.0/24
+         map_public: yes
+         tags:
+           Name: subnet1
+         state: present
+         region: "{{region}}"
+       register: subnet
+     - name: creating igw
+       ec2_vpc_igw:
+         vpc_id: "{{vpc.vpc.id}}"
+         state: present
+         region: "{{region}}"
+         tags:
+           Name: igw1
+       register: igw
+
+     - name: creating route table
+       ec2_vpc_route_table:
+         vpc_id: "{{vpc.vpc.id}}"
+         region: "{{region}}"
+         tags:
+           Name: route1
+         subnets:
+           - "{{subnet.subnet.id}}"
+         routes:
+           - dest: 0.0.0.0/0
+             gateway_id: "{{igw.gateway_id}}"
+         state: present
+       register: route_table
+
+     - name: creating security group
+       ec2_group:
+         name: test_group
+         description: creating for custom vpc
+         region: "{{region}}"
+         state: present
+         vpc_id: "{{vpc.vpc.id}}"       
+         rules:
+            - proto: tcp
+              ports:
+                 - 22
+              cidr_ip: 0.0.0.0/0
+#           - proto: all
+#             cidr_ip: 0.0.0.0/0
+       register: sg
+
+     - name: Creating ec2 instance 
+       ec2: 
+        key_name: "{{key_name}}"
+        instance_type: "{{instance_type}}"
+        image: "{{image_id}}"
+        region: "{{region}}"
+        group_id: "{{sg.group_id}}"
+        count: 1
+        vpc_subnet_id: "{{subnet.subnet.id}}"
+        wait: yes
+        instance_tags:
+          Name: "{{tag_name}}"
+        state: present 
